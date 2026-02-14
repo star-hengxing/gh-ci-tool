@@ -6,7 +6,7 @@ use octocrab::Octocrab;
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File};
 use std::io::{self, Cursor, IsTerminal};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use zip::ZipArchive;
 
@@ -56,9 +56,9 @@ fn icon_failure() -> &'static str {
     if supports_emoji() { "❌" } else { "✗" }
 }
 
-fn icon_pending() -> &'static str {
-    if supports_emoji() { "⏳" } else { "~" }
-}
+// fn icon_pending() -> &'static str {
+//     if supports_emoji() { "⏳" } else { "~" }
+// }
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -227,7 +227,7 @@ async fn main() -> Result<()> {
 
 fn get_current_branch() -> Result<String> {
     let output = Command::new("git")
-        .args(&["rev-parse", "--abbrev-ref", "HEAD"])
+        .args(["rev-parse", "--abbrev-ref", "HEAD"])
         .output()
         .context("Failed to execute git command")?;
 
@@ -243,7 +243,7 @@ fn get_current_branch() -> Result<String> {
 
 fn get_latest_commit() -> Result<String> {
     let output = Command::new("git")
-        .args(&["rev-parse", "HEAD"])
+        .args(["rev-parse", "HEAD"])
         .output()
         .context("Failed to execute git command")?;
 
@@ -263,7 +263,7 @@ fn get_repo_info() -> Result<(String, String)> {
 
     for remote in remotes {
         let output = Command::new("git")
-            .args(&["remote", "get-url", remote])
+            .args(["remote", "get-url", remote])
             .output()
             .context("Failed to execute git command")?;
 
@@ -313,7 +313,7 @@ async fn download_workflow_logs(
     owner: &str,
     repo: &str,
     run_id: u64,
-    output_dir: &PathBuf,
+    output_dir: &Path,
 ) -> Result<()> {
     let bytes = octocrab
         .actions()
