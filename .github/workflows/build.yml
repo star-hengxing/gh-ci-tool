@@ -2,9 +2,20 @@ name: build
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
+    paths:
+      - ".github/workflows/build.yml"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "src/**"
+
   pull_request:
-    branches: [ main ]
+    branches: [main]
+    paths:
+      - ".github/workflows/build.yml"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "src/**"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
