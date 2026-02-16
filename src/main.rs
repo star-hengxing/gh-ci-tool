@@ -171,6 +171,10 @@ async fn main() -> Result<()> {
         }
     }
 
+    if let Some(progress) = &progress {
+        progress.finish_and_clear();
+    }
+
     let output = serde_json::to_string_pretty(&workflow_statuses)?;
     fs::write(&workflow_status_json_path, &output)?;
 
