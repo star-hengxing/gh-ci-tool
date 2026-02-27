@@ -4,6 +4,18 @@
 - Optional: set `LLM=true` for concise CI output.
 - Run `cargo build`, then execute the tool inside a git repository whose CI status you want to check.
 
+```console
+$ gh-ci-tool --help
+Check GitHub Actions CI status for current commit
+
+Usage: gh-ci-tool [OPTIONS]
+
+Options:
+      --no-logs  Disable log download for failed jobs
+  -V, --version  Print version
+  -h, --help     Print help
+```
+
 # Features
 
 1. Fetches CI status from GitHub Actions.
@@ -29,11 +41,12 @@ gh-ci-tool/
 
 Log locations:
 
-- CI status JSON (compact, no pretty formatting): `.gh-ci-tool/<commit>/ci-status.json`
-- CI status report (human): `.gh-ci-tool/<commit>/ci-status.txt`
-- LLM concise report (LLM): `.gh-ci-tool/<commit>/ci-status.llm.txt`
-- Failed job logs (if any): `.gh-ci-tool/<commit>/logs/<workflow name (sanitized)>-<run id>/<job name (sanitized)>-<job id>.log`
-- LLM compact log summaries (when `LLM=true`): `.gh-ci-tool/<commit>/logs/<workflow name (sanitized)>-<run id>/<job name (sanitized)>-<job id>.log.llm.txt`
+`<short-sha>` is the first 8 chars of the latest commit SHA.
+
+- CI status JSON (compact, no pretty formatting): `.gh-ci-tool/<short-sha>/ci-status.json`
+- CI status report (human): `.gh-ci-tool/<short-sha>/ci-status.txt`
+- LLM concise report (LLM): `.gh-ci-tool/<short-sha>/ci-status.llm.txt`
+- Failed job logs (if any): `.gh-ci-tool/<short-sha>/logs/<workflow name (sanitized)>-<run id>/<job name (sanitized)>-<job id>.log`
 
 Path components are sanitized by `sanitize_path_component` (`[A-Za-z0-9_.]` kept, other chars replaced by `-`, duplicate/trailing `-` collapsed/trimmed).
 
@@ -107,5 +120,5 @@ Failed job log saved to .gh-ci-tool\64b9e2eb\logs\Archlinux-22424544342\build-ub
 Failed job log saved to .gh-ci-tool\64b9e2eb\logs\macOS-x86_64-22424544328\build-macos-15-intel-x86_64-static-64929684704.log
 Failed job log saved to .gh-ci-tool\64b9e2eb\logs\macOS-x86_64-22424544328\build-macos-15-intel-x86_64-shared-64929684721.log
 Failed job log saved to .gh-ci-tool\64b9e2eb\logs\macOS-arm64-22424544315\build-macos-14-arm64-shared-64929684665.log
-Failed job log saved to .gh-ci-tool\64b9e2eb\logs\macOS-arm64-22424544315\build-macos-14-arm64-static-64929684668.log```
+Failed job log saved to .gh-ci-tool\64b9e2eb\logs\macOS-arm64-22424544315\build-macos-14-arm64-static-64929684668.log
 ```
