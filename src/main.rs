@@ -41,7 +41,8 @@ async fn main() -> Result<()> {
     let commit_sha = get_latest_commit()?;
     output_mode.emit_verbose(format!("Latest commit: {}", commit_sha));
 
-    let output_dir = PathBuf::from(".gh-ci-tool").join(&commit_sha[..8]);
+    let short_sha = commit_sha.get(..8).unwrap_or(commit_sha.as_str());
+    let output_dir = PathBuf::from(".gh-ci-tool").join(short_sha);
     fs::create_dir_all(&output_dir)?;
 
     let (owner, repo) = get_repo_info()?;
@@ -124,10 +125,9 @@ async fn main() -> Result<()> {
     let status_plain_path = output_dir.join("ci-status.txt");
     let status_llm_path = output_dir.join("ci-status.llm.txt");
 
+    fs::write(&status_plain_path, &human_report)?;
     if output_mode.is_llm() {
         fs::write(&status_llm_path, &llm_report)?;
-    } else {
-        fs::write(&status_plain_path, &human_report)?;
     }
 
     if !args.no_logs {

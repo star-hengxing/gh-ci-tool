@@ -71,12 +71,12 @@ impl WorkflowStatus {
             return true;
         }
 
-        let has_terminal_jobs = self
+        let has_non_terminal_jobs = self
             .jobs
             .iter()
-            .any(|job| matches!(job.status, Status::Completed | Status::Failed));
+            .any(|job| !matches!(job.status, Status::Completed | Status::Failed));
         let has_missing_job_ids = self.jobs.iter().any(|job| job.job_id == 0);
-        !has_terminal_jobs || has_missing_job_ids
+        has_non_terminal_jobs || has_missing_job_ids
     }
 }
 
