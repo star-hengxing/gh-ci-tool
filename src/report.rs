@@ -29,6 +29,16 @@ pub fn render_human_report(workflows: &[WorkflowStatus]) -> String {
     let mut lines = Vec::new();
 
     for workflow in workflows {
+        if workflow.is_in_progress() {
+            lines.push(format!(
+                "- {} {} ({})",
+                workflow.name,
+                icon_running(),
+                workflow.status
+            ));
+            continue;
+        }
+
         if workflow.is_success() {
             lines.push(format!("- {} {}", workflow.name, icon_success()));
             continue;
@@ -39,16 +49,6 @@ pub fn render_human_report(workflows: &[WorkflowStatus]) -> String {
             for job in &workflow.jobs {
                 lines.push(format!("  - {}: {}", job.name, format_job_conclusion(job)));
             }
-            continue;
-        }
-
-        if workflow.is_in_progress() {
-            lines.push(format!(
-                "- {} {} ({})",
-                workflow.name,
-                icon_running(),
-                workflow.status
-            ));
             continue;
         }
 
@@ -65,8 +65,14 @@ pub fn render_human_report(workflows: &[WorkflowStatus]) -> String {
 
 pub fn render_llm_report(workflows: &[WorkflowStatus]) -> String {
     let total = workflows.len();
-    let success = workflows.iter().filter(|w| w.is_success()).count();
-    let failure = workflows.iter().filter(|w| w.is_failure()).count();
+    let success = workflows
+        .iter()
+        .filter(|w| !w.is_in_progress() && w.is_success())
+        .count();
+    let failure = workflows
+        .iter()
+        .filter(|w| !w.is_in_progress() && w.is_failure())
+        .count();
     let other = total.saturating_sub(success + failure);
 
     let mut lines = vec![format!(
@@ -74,7 +80,10 @@ pub fn render_llm_report(workflows: &[WorkflowStatus]) -> String {
         total, success, failure, other
     )];
 
-    for workflow in workflows.iter().filter(|w| w.is_failure()) {
+    for workflow in workflows
+        .iter()
+        .filter(|w| !w.is_in_progress() && w.is_failure())
+    {
         let failed_jobs = workflow
             .jobs
             .iter()
@@ -104,7 +113,10 @@ pub fn render_llm_report(workflows: &[WorkflowStatus]) -> String {
         ));
     }
 
-    if failure == 0 && other == 0 {
+    let all_passed = workflows
+        .iter()
+        .all(|w| !w.is_in_progress() && w.is_success());
+    if all_passed {
         lines.push("all workflows passed".to_string());
     }
 
@@ -137,10 +149,27 @@ mod tests {
     }
 
     #[test]
+    fn renders_in_progress_with_success_conclusion_as_running() {
+        let report = render_human_report(&[workflow("FreeBSD", "in_progress", Some("success"))]);
+        assert!(report.contains("- FreeBSD [RUNNING] (in_progress)"));
+    }
+
+    #[test]
     fn llm_report_does_not_mark_running_workflows_as_passed() {
         let report = render_llm_report(&[
             workflow("Linux", "completed", Some("success")),
             workflow("FreeBSD", "in_progress", None),
+        ]);
+
+        assert!(!report.contains("all workflows passed"));
+        assert!(report.contains("running workflow=FreeBSD status=in_progress"));
+    }
+
+    #[test]
+    fn llm_report_treats_in_progress_with_success_conclusion_as_running() {
+        let report = render_llm_report(&[
+            workflow("Linux", "completed", Some("success")),
+            workflow("FreeBSD", "in_progress", Some("success")),
         ]);
 
         assert!(!report.contains("all workflows passed"));
