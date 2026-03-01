@@ -26,6 +26,10 @@ fn icon_running() -> &'static str {
 }
 
 pub fn render_human_report(workflows: &[WorkflowStatus]) -> String {
+    if workflows.is_empty() {
+        return "No workflows found for current commit.".to_string();
+    }
+
     let mut lines = Vec::new();
 
     for workflow in workflows {
@@ -79,6 +83,11 @@ pub fn render_llm_report(workflows: &[WorkflowStatus]) -> String {
         "ci total={} success={} failure={} other={}",
         total, success, failure, other
     )];
+
+    if workflows.is_empty() {
+        lines.push("no workflows found for current commit".to_string());
+        return lines.join("\n");
+    }
 
     for workflow in workflows
         .iter()
@@ -196,6 +205,13 @@ mod tests {
     #[test]
     fn llm_report_does_not_mark_empty_workflows_as_passed() {
         let report = render_llm_report(&[]);
+        assert!(report.contains("no workflows found for current commit"));
         assert!(!report.contains("all workflows passed"));
+    }
+
+    #[test]
+    fn human_report_shows_message_for_empty_workflows() {
+        let report = render_human_report(&[]);
+        assert_eq!(report, "No workflows found for current commit.");
     }
 }
