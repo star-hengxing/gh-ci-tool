@@ -28,6 +28,10 @@ fn env_truthy(key: &str) -> bool {
     )
 }
 
+fn should_refresh_workflows(cached: &[WorkflowStatus]) -> bool {
+    cached.is_empty() || cached.iter().any(|w| w.is_in_progress())
+}
+
 async fn fetch_current_branch_workflows(
     octocrab: &Octocrab,
     owner: &str,
@@ -80,7 +84,7 @@ async fn main() -> Result<()> {
         )
         .context("Failed to parse existing ci-status.json")?;
 
-        if cached_workflow_statuses.is_empty() {
+        if should_refresh_workflows(&cached_workflow_statuses) {
             output_mode.emit_verbose("Cached ci-status.json is empty; refreshing workflows...");
             fetch_current_branch_workflows(&octocrab, &owner, &repo, &branch, &commit_sha).await?
         } else {
@@ -197,4 +201,45 @@ async fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::should_refresh_workflows;
+    use crate::models::WorkflowStatus;
+    use chrono::Utc;
+
+    fn workflow(status: &str, conclusion: Option<&str>) -> WorkflowStatus {
+        WorkflowStatus {
+            run_id: 1,
+            name: "workflow".to_string(),
+            status: status.to_string(),
+            conclusion: conclusion.map(str::to_string),
+            html_url: "https://example.invalid".to_string(),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            jobs: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn should_refresh_workflows_when_cache_is_empty() {
+        assert!(should_refresh_workflows(&[]));
+    }
+
+    #[test]
+    fn should_refresh_workflows_when_any_cached_workflow_is_in_progress() {
+        assert!(should_refresh_workflows(&[
+            workflow("completed", Some("success")),
+            workflow("in_progress", None),
+        ]));
+    }
+
+    #[test]
+    fn should_not_refresh_workflows_when_cached_workflows_are_terminal() {
+        assert!(!should_refresh_workflows(&[
+            workflow("completed", Some("success")),
+            workflow("completed", Some("failure")),
+        ]));
+    }
 }
