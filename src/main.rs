@@ -28,6 +28,28 @@ fn env_truthy(key: &str) -> bool {
     )
 }
 
+async fn fetch_current_branch_workflows(
+    octocrab: &Octocrab,
+    owner: &str,
+    repo: &str,
+    branch: &str,
+    commit_sha: &str,
+) -> Result<Vec<WorkflowStatus>> {
+    let workflow_runs = octocrab
+        .workflows(owner, repo)
+        .list_all_runs()
+        .head_sha(commit_sha)
+        .branch(branch)
+        .send()
+        .await?;
+
+    Ok(workflow_runs
+        .items
+        .into_iter()
+        .map(WorkflowStatus::from_run)
+        .collect())
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = Args::parse();
@@ -52,26 +74,21 @@ async fn main() -> Result<()> {
 
     let workflow_status_json_path = output_dir.join("ci-status.json");
     let mut workflow_statuses: Vec<WorkflowStatus> = if workflow_status_json_path.exists() {
-        serde_json::from_str(
+        let cached_workflow_statuses: Vec<WorkflowStatus> = serde_json::from_str(
             &fs::read_to_string(&workflow_status_json_path)
                 .context("Failed to read existing ci-status.json")?,
         )
-        .context("Failed to parse existing ci-status.json")?
+        .context("Failed to parse existing ci-status.json")?;
+
+        if cached_workflow_statuses.is_empty() {
+            output_mode.emit_verbose("Cached ci-status.json is empty; refreshing workflows...");
+            fetch_current_branch_workflows(&octocrab, &owner, &repo, &branch, &commit_sha).await?
+        } else {
+            cached_workflow_statuses
+        }
     } else {
         output_mode.emit_verbose("Fetching current branch workflows...");
-        let workflow_runs = octocrab
-            .workflows(&owner, &repo)
-            .list_all_runs()
-            .head_sha(&commit_sha)
-            .branch(&branch)
-            .send()
-            .await?;
-
-        workflow_runs
-            .items
-            .into_iter()
-            .map(WorkflowStatus::from_run)
-            .collect()
+        fetch_current_branch_workflows(&octocrab, &owner, &repo, &branch, &commit_sha).await?
     };
 
     let fetch_targets = workflow_statuses
