@@ -50,6 +50,13 @@ Log locations:
 
 Path components are sanitized by `sanitize_path_component` (`[A-Za-z0-9_.]` kept, other chars replaced by `-`, duplicate/trailing `-` collapsed/trimmed).
 
+Cache refresh rules (`.gh-ci-tool/<short-sha>/ci-status.json`):
+
+- If cache file does not exist: fetch workflow runs from GitHub.
+- If cache exists but parsed array is empty: fetch workflow runs from GitHub.
+- If cache exists and any cached workflow is in progress (`in_progress`/`queued`/`pending`/`requested`/`waiting`): fetch workflow runs from GitHub to refresh run-level `status`/`conclusion`.
+- Otherwise: reuse cached workflow list and only refresh jobs by `needs_job_refresh`.
+
 ```console
 Current branch: autoupdate-librats-0.8.0
 Latest commit: 64b9e2ebc1aad19c854e9510d3d2b9bd62db7ed6

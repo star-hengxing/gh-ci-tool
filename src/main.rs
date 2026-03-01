@@ -85,7 +85,9 @@ async fn main() -> Result<()> {
         .context("Failed to parse existing ci-status.json")?;
 
         if should_refresh_workflows(&cached_workflow_statuses) {
-            output_mode.emit_verbose("Cached ci-status.json is empty; refreshing workflows...");
+            output_mode.emit_verbose(
+                "Cached ci-status.json requires workflow refresh; refreshing workflows...",
+            );
             fetch_current_branch_workflows(&octocrab, &owner, &repo, &branch, &commit_sha).await?
         } else {
             cached_workflow_statuses
@@ -232,6 +234,14 @@ mod tests {
         assert!(should_refresh_workflows(&[
             workflow("completed", Some("success")),
             workflow("in_progress", None),
+        ]));
+    }
+
+    #[test]
+    fn should_refresh_workflows_when_any_cached_workflow_is_queued() {
+        assert!(should_refresh_workflows(&[
+            workflow("completed", Some("success")),
+            workflow("queued", None),
         ]));
     }
 
