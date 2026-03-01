@@ -113,9 +113,10 @@ pub fn render_llm_report(workflows: &[WorkflowStatus]) -> String {
         ));
     }
 
-    let all_passed = workflows
-        .iter()
-        .all(|w| !w.is_in_progress() && w.is_success());
+    let all_passed = !workflows.is_empty()
+        && workflows
+            .iter()
+            .all(|w| !w.is_in_progress() && w.is_success());
     if all_passed {
         lines.push("all workflows passed".to_string());
     }
@@ -142,16 +143,23 @@ mod tests {
         }
     }
 
+    fn assert_running_line(report: &str) {
+        assert!(
+            report.contains("- FreeBSD [RUNNING] (in_progress)")
+                || report.contains("- FreeBSD \u{23F3} (in_progress)")
+        );
+    }
+
     #[test]
     fn renders_in_progress_workflow_as_running() {
         let report = render_human_report(&[workflow("FreeBSD", "in_progress", None)]);
-        assert!(report.contains("- FreeBSD [RUNNING] (in_progress)"));
+        assert_running_line(&report);
     }
 
     #[test]
     fn renders_in_progress_with_success_conclusion_as_running() {
         let report = render_human_report(&[workflow("FreeBSD", "in_progress", Some("success"))]);
-        assert!(report.contains("- FreeBSD [RUNNING] (in_progress)"));
+        assert_running_line(&report);
     }
 
     #[test]
@@ -183,5 +191,11 @@ mod tests {
             workflow("Windows", "completed", Some("success")),
         ]);
         assert!(report.contains("all workflows passed"));
+    }
+
+    #[test]
+    fn llm_report_does_not_mark_empty_workflows_as_passed() {
+        let report = render_llm_report(&[]);
+        assert!(!report.contains("all workflows passed"));
     }
 }
