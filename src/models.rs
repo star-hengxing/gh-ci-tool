@@ -63,7 +63,17 @@ impl WorkflowStatus {
         self.conclusion.as_deref() == Some("failure")
     }
 
+    pub fn is_in_progress(&self) -> bool {
+        matches!(
+            self.status.as_str(),
+            "in_progress" | "queued" | "pending" | "requested" | "waiting"
+        )
+    }
+
     pub fn needs_job_refresh(&self) -> bool {
+        if self.is_in_progress() {
+            return true;
+        }
         if self.is_success() {
             return false;
         }
@@ -89,4 +99,88 @@ pub fn format_job_conclusion(job: &JobStatus) -> String {
         .as_ref()
         .map(|c| format!("{:?}", c))
         .unwrap_or_else(|| "Unknown".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{JobStatus, WorkflowStatus};
+    use chrono::Utc;
+    use octocrab::models::workflows::Status;
+
+    fn workflow(status: &str, conclusion: Option<&str>, jobs: Vec<JobStatus>) -> WorkflowStatus {
+        WorkflowStatus {
+            run_id: 1,
+            name: "workflow".to_string(),
+            status: status.to_string(),
+            conclusion: conclusion.map(str::to_string),
+            html_url: "https://example.invalid".to_string(),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            jobs,
+        }
+    }
+
+    fn job(job_id: u64, status: Status) -> JobStatus {
+        JobStatus {
+            job_id,
+            name: format!("job-{job_id}"),
+            status,
+            conclusion: None,
+            html_url: "https://example.invalid".to_string(),
+            started_at: Utc::now(),
+            completed_at: None,
+        }
+    }
+
+    #[test]
+    fn needs_job_refresh_true_for_in_progress_even_with_success_conclusion() {
+        let status = workflow(
+            "in_progress",
+            Some("success"),
+            vec![job(1, Status::Completed)],
+        );
+        assert!(status.needs_job_refresh());
+    }
+
+    #[test]
+    fn needs_job_refresh_false_for_success_workflow() {
+        let status = workflow("completed", Some("success"), Vec::new());
+        assert!(!status.needs_job_refresh());
+    }
+
+    #[test]
+    fn needs_job_refresh_true_for_non_success_with_empty_jobs() {
+        let status = workflow("completed", None, Vec::new());
+        assert!(status.needs_job_refresh());
+    }
+
+    #[test]
+    fn needs_job_refresh_true_when_non_terminal_job_exists() {
+        let status = workflow(
+            "completed",
+            Some("failure"),
+            vec![job(1, Status::InProgress)],
+        );
+        assert!(status.needs_job_refresh());
+    }
+
+    #[test]
+    fn needs_job_refresh_true_when_job_id_missing() {
+        let status = workflow(
+            "completed",
+            Some("failure"),
+            vec![job(0, Status::Completed)],
+        );
+        assert!(status.needs_job_refresh());
+    }
+
+    #[test]
+    fn needs_job_refresh_false_for_terminal_jobs_with_valid_ids() {
+        let status = workflow(
+            "completed",
+            Some("failure"),
+            vec![job(1, Status::Completed), job(2, Status::Failed)],
+        );
+        assert!(!status.needs_job_refresh());
+    }
 }

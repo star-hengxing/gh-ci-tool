@@ -28,6 +28,32 @@ fn env_truthy(key: &str) -> bool {
     )
 }
 
+fn should_refresh_workflows(cached: &[WorkflowStatus]) -> bool {
+    cached.is_empty() || cached.iter().any(|w| w.is_in_progress())
+}
+
+async fn fetch_current_branch_workflows(
+    octocrab: &Octocrab,
+    owner: &str,
+    repo: &str,
+    branch: &str,
+    commit_sha: &str,
+) -> Result<Vec<WorkflowStatus>> {
+    let workflow_runs = octocrab
+        .workflows(owner, repo)
+        .list_all_runs()
+        .head_sha(commit_sha)
+        .branch(branch)
+        .send()
+        .await?;
+
+    Ok(workflow_runs
+        .items
+        .into_iter()
+        .map(WorkflowStatus::from_run)
+        .collect())
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = Args::parse();
@@ -52,26 +78,23 @@ async fn main() -> Result<()> {
 
     let workflow_status_json_path = output_dir.join("ci-status.json");
     let mut workflow_statuses: Vec<WorkflowStatus> = if workflow_status_json_path.exists() {
-        serde_json::from_str(
+        let cached_workflow_statuses: Vec<WorkflowStatus> = serde_json::from_str(
             &fs::read_to_string(&workflow_status_json_path)
                 .context("Failed to read existing ci-status.json")?,
         )
-        .context("Failed to parse existing ci-status.json")?
+        .context("Failed to parse existing ci-status.json")?;
+
+        if should_refresh_workflows(&cached_workflow_statuses) {
+            output_mode.emit_verbose(
+                "Cached ci-status.json requires workflow refresh; refreshing workflows...",
+            );
+            fetch_current_branch_workflows(&octocrab, &owner, &repo, &branch, &commit_sha).await?
+        } else {
+            cached_workflow_statuses
+        }
     } else {
         output_mode.emit_verbose("Fetching current branch workflows...");
-        let workflow_runs = octocrab
-            .workflows(&owner, &repo)
-            .list_all_runs()
-            .head_sha(&commit_sha)
-            .branch(&branch)
-            .send()
-            .await?;
-
-        workflow_runs
-            .items
-            .into_iter()
-            .map(WorkflowStatus::from_run)
-            .collect()
+        fetch_current_branch_workflows(&octocrab, &owner, &repo, &branch, &commit_sha).await?
     };
 
     let fetch_targets = workflow_statuses
@@ -180,4 +203,53 @@ async fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::should_refresh_workflows;
+    use crate::models::WorkflowStatus;
+    use chrono::Utc;
+
+    fn workflow(status: &str, conclusion: Option<&str>) -> WorkflowStatus {
+        WorkflowStatus {
+            run_id: 1,
+            name: "workflow".to_string(),
+            status: status.to_string(),
+            conclusion: conclusion.map(str::to_string),
+            html_url: "https://example.invalid".to_string(),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            jobs: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn should_refresh_workflows_when_cache_is_empty() {
+        assert!(should_refresh_workflows(&[]));
+    }
+
+    #[test]
+    fn should_refresh_workflows_when_any_cached_workflow_is_in_progress() {
+        assert!(should_refresh_workflows(&[
+            workflow("completed", Some("success")),
+            workflow("in_progress", None),
+        ]));
+    }
+
+    #[test]
+    fn should_refresh_workflows_when_any_cached_workflow_is_queued() {
+        assert!(should_refresh_workflows(&[
+            workflow("completed", Some("success")),
+            workflow("queued", None),
+        ]));
+    }
+
+    #[test]
+    fn should_not_refresh_workflows_when_cached_workflows_are_terminal() {
+        assert!(!should_refresh_workflows(&[
+            workflow("completed", Some("success")),
+            workflow("completed", Some("failure")),
+        ]));
+    }
 }

@@ -17,25 +17,51 @@ fn icon_failure() -> &'static str {
     }
 }
 
+fn icon_running() -> &'static str {
+    if supports_emoji() {
+        "\u{23F3}"
+    } else {
+        "[RUNNING]"
+    }
+}
+
 pub fn render_human_report(workflows: &[WorkflowStatus]) -> String {
+    if workflows.is_empty() {
+        return "No workflows found for current commit.".to_string();
+    }
+
     let mut lines = Vec::new();
 
     for workflow in workflows {
-        match workflow.conclusion.as_deref() {
-            Some("success") => lines.push(format!("- {} {}", workflow.name, icon_success())),
-            Some("failure") => {
-                lines.push(format!("- {} {}", workflow.name, icon_failure()));
-                for job in &workflow.jobs {
-                    lines.push(format!("  - {}: {}", job.name, format_job_conclusion(job)));
-                }
-            }
-            _ => lines.push(format!(
-                "- {} status={} conclusion={}",
+        if workflow.is_in_progress() {
+            lines.push(format!(
+                "- {} {} ({})",
                 workflow.name,
-                workflow.status,
-                workflow.conclusion.as_deref().unwrap_or("unknown")
-            )),
+                icon_running(),
+                workflow.status
+            ));
+            continue;
         }
+
+        if workflow.is_success() {
+            lines.push(format!("- {} {}", workflow.name, icon_success()));
+            continue;
+        }
+
+        if workflow.is_failure() {
+            lines.push(format!("- {} {}", workflow.name, icon_failure()));
+            for job in &workflow.jobs {
+                lines.push(format!("  - {}: {}", job.name, format_job_conclusion(job)));
+            }
+            continue;
+        }
+
+        lines.push(format!(
+            "- {} status={} conclusion={}",
+            workflow.name,
+            workflow.status,
+            workflow.conclusion.as_deref().unwrap_or("unknown")
+        ));
     }
 
     lines.join("\n")
@@ -43,8 +69,14 @@ pub fn render_human_report(workflows: &[WorkflowStatus]) -> String {
 
 pub fn render_llm_report(workflows: &[WorkflowStatus]) -> String {
     let total = workflows.len();
-    let success = workflows.iter().filter(|w| w.is_success()).count();
-    let failure = workflows.iter().filter(|w| w.is_failure()).count();
+    let success = workflows
+        .iter()
+        .filter(|w| !w.is_in_progress() && w.is_success())
+        .count();
+    let failure = workflows
+        .iter()
+        .filter(|w| !w.is_in_progress() && w.is_failure())
+        .count();
     let other = total.saturating_sub(success + failure);
 
     let mut lines = vec![format!(
@@ -52,7 +84,15 @@ pub fn render_llm_report(workflows: &[WorkflowStatus]) -> String {
         total, success, failure, other
     )];
 
-    for workflow in workflows.iter().filter(|w| w.is_failure()) {
+    if workflows.is_empty() {
+        lines.push("no workflows found for current commit".to_string());
+        return lines.join("\n");
+    }
+
+    for workflow in workflows
+        .iter()
+        .filter(|w| !w.is_in_progress() && w.is_failure())
+    {
         let failed_jobs = workflow
             .jobs
             .iter()
@@ -75,9 +115,103 @@ pub fn render_llm_report(workflows: &[WorkflowStatus]) -> String {
         }
     }
 
-    if failure == 0 {
+    for workflow in workflows.iter().filter(|w| w.is_in_progress()) {
+        lines.push(format!(
+            "running workflow={} status={}",
+            workflow.name, workflow.status
+        ));
+    }
+
+    let all_passed = !workflows.is_empty()
+        && workflows
+            .iter()
+            .all(|w| !w.is_in_progress() && w.is_success());
+    if all_passed {
         lines.push("all workflows passed".to_string());
     }
 
     lines.join("\n")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{render_human_report, render_llm_report};
+    use crate::models::WorkflowStatus;
+    use chrono::Utc;
+
+    fn workflow(name: &str, status: &str, conclusion: Option<&str>) -> WorkflowStatus {
+        WorkflowStatus {
+            run_id: 1,
+            name: name.to_string(),
+            status: status.to_string(),
+            conclusion: conclusion.map(str::to_string),
+            html_url: "https://example.invalid".to_string(),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            jobs: Vec::new(),
+        }
+    }
+
+    fn assert_running_line(report: &str) {
+        assert!(
+            report.contains("- FreeBSD [RUNNING] (in_progress)")
+                || report.contains("- FreeBSD \u{23F3} (in_progress)")
+        );
+    }
+
+    #[test]
+    fn renders_in_progress_workflow_as_running() {
+        let report = render_human_report(&[workflow("FreeBSD", "in_progress", None)]);
+        assert_running_line(&report);
+    }
+
+    #[test]
+    fn renders_in_progress_with_success_conclusion_as_running() {
+        let report = render_human_report(&[workflow("FreeBSD", "in_progress", Some("success"))]);
+        assert_running_line(&report);
+    }
+
+    #[test]
+    fn llm_report_does_not_mark_running_workflows_as_passed() {
+        let report = render_llm_report(&[
+            workflow("Linux", "completed", Some("success")),
+            workflow("FreeBSD", "in_progress", None),
+        ]);
+
+        assert!(!report.contains("all workflows passed"));
+        assert!(report.contains("running workflow=FreeBSD status=in_progress"));
+    }
+
+    #[test]
+    fn llm_report_treats_in_progress_with_success_conclusion_as_running() {
+        let report = render_llm_report(&[
+            workflow("Linux", "completed", Some("success")),
+            workflow("FreeBSD", "in_progress", Some("success")),
+        ]);
+
+        assert!(!report.contains("all workflows passed"));
+        assert!(report.contains("running workflow=FreeBSD status=in_progress"));
+    }
+
+    #[test]
+    fn llm_report_marks_all_passed_only_when_no_other_states() {
+        let report = render_llm_report(&[
+            workflow("Linux", "completed", Some("success")),
+            workflow("Windows", "completed", Some("success")),
+        ]);
+        assert!(report.contains("all workflows passed"));
+    }
+
+    #[test]
+    fn llm_report_does_not_mark_empty_workflows_as_passed() {
+        let report = render_llm_report(&[]);
+        assert!(report.contains("no workflows found for current commit"));
+        assert!(!report.contains("all workflows passed"));
+    }
+
+    #[test]
+    fn human_report_shows_message_for_empty_workflows() {
+        let report = render_human_report(&[]);
+        assert_eq!(report, "No workflows found for current commit.");
+    }
 }
